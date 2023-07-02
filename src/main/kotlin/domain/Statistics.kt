@@ -1,50 +1,30 @@
 package domain
 
-import domain.component.channel.Channels
 import domain.request.Request
 
 data class Statistics(
-    val statesProbability: Map<System.State, Double>,
-    val refuseProbability: Double, // Pотк
-    val blockProbability: Double, // Pбл
-    val averageQueueLength: Double, // Lоч
-    val averageRequestCount: Double, // Lс
-    val relativeThroughput: Double, // Q
-    val absoluteThroughput: Double, // A
-    val averageTimeInQueue: Double, // Wоч
-    val averageTimeInSystem: Double, // Wс
-    val channelCoefficients: List<Double>, // Ккан
-    val channelRelativeThroughput: List<Double>, // Qs
+    val states: Map<System.State, Double>,
+    val q1: Double, // Q1
+    val q2: Double, // Q2
 ) {
 
     companion object {
 
-        fun from(
-            tickCount: Int,
-            channels: Channels,
-            requests: List<Request>,
-            states: Map<System.State, Int>
-        ): Statistics {
-            val entered = requests.filter { !it.refusedOnSource }
-            val enteredRefused = entered.filter { it.isRefused() }
-            val refused = requests.filter { it.isRefused() }
-            val handled = entered.filter { it.handled }
-
-            val stateCount = states.values.sum()
-            val statesProbability = states.mapValues { it.value.toDouble() / stateCount }
+        fun from(states: Map<System.State, Double>, requests: List<Request>): Statistics {
+            val allTime = states.values.sum()
             return Statistics(
-                statesProbability,
-                refused.size / requests.size.toDouble(),
-                0.0,
-                statesProbability.entries.sumOf { it.key.queueSize * it.value },
-                statesProbability.entries.sumOf { it.key.requestCount * it.value },
-                1 - refused.size / requests.size.toDouble(),
-                (entered.size - enteredRefused.size) / tickCount.toDouble(),
-                entered.sumOf { it.ticksInQueue } / entered.size.toDouble(),
-                handled.sumOf { it.ticksInSystem } / handled.size.toDouble(),
-                channels.list.map { it.busyTicks / tickCount.toDouble() },
-                channels.list.map { it.relativeThroughput() },
+                states.mapValues { it.value / allTime },
+                q(requests, 1),
+                q(requests, 2)
             )
+        }
+
+        private fun q(requests: List<Request>, type: Int): Double {
+            val typed = requests.filter { it.type == type }
+            val refused = typed.filter { it.isRefused() }
+            val handled = typed.filter { it.handled }
+
+            return handled.size.toDouble() / (refused.size + handled.size)
         }
     }
 }

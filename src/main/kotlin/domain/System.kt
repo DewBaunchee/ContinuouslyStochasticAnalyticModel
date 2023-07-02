@@ -2,26 +2,30 @@ package domain
 
 import domain.component.channel.Channels
 import domain.component.queue.Queue
-import domain.component.source.Source
+import domain.component.source.PoissonSource
 import domain.request.Request
 import java.util.*
+import kotlin.math.min
 
 class System(
-    private val source: Source,
+    private val source: PoissonSource,
     private val queue: Queue,
     private val channels: Channels
 ) {
 
-    var totalTime = 0.0
-        private set
+    private fun count(type: Int): Int {
+        return queue.peek().let { if (it == null || it.type != type) 0 else 1 } +
+            channels.list.count { it.request?.type == type }
+    }
 
-    private val state get() = State(queue.state, channels.state)
+    private val state get() = State(count(1), count(2))
 
-    private fun tick(deltaT: Double): Pair<State, Request?> {
-        totalTime += deltaT
+    private fun tick(): Triple<State, Request?, Double> {
+        val deltaT = min(channels.minimalTime, source.remainTime)
         channels.tick(deltaT)
-        queue.tick(deltaT)
-        if (channels.handle(queue.peek())) queue.dequeue()
+        queue.dequeue()?.also {
+            if (!channels.handle(it)) queue.enqueue(it)
+        }
 
         val emitted = source.tick(deltaT)
         if (emitted != null) {
@@ -30,35 +34,30 @@ class System(
             }
         }
 
-        return state to emitted
+        return Triple(state, emitted, deltaT)
     }
 
-    fun simulate(tickCount: Int, deltaT: Double): Statistics {
+    fun simulate(tickCount: Int): Statistics {
         val requests = mutableListOf<Request>()
-        val states = mutableMapOf<State, Int>()
+        val states = mutableMapOf<State, Double>()
         for (i in 0 until tickCount) {
-            val tickResult = tick(deltaT)
+            val tickResult = tick()
 
             states.compute(tickResult.first) { _, count ->
-                if (count == null) return@compute 1
-                return@compute count + 1
+                if (count == null) return@compute tickResult.third
+                return@compute count + tickResult.third
             }
 
             if (tickResult.second != null) requests.add(tickResult.second!!)
         }
 
-        return Statistics.from(tickCount, channels, requests.toList(), states.toMap())
+        return Statistics.from(states, requests.toList())
     }
 
-    class State(
-        val queueSize: Int,
-        val channelBusiness: List<Int>
-    ) {
-
-        val requestCount get() = queueSize + channelBusiness.sumOf { (if (it != 0) 1 else 0).toInt() }
+    class State(val firstType: Int, val secondType: Int) {
 
         override fun hashCode(): Int {
-            return Objects.hash(queueSize, channelBusiness)
+            return Objects.hash(firstType, secondType)
         }
 
         override fun equals(other: Any?): Boolean {
@@ -67,14 +66,14 @@ class System(
 
             other as State
 
-            if (queueSize != other.queueSize) return false
-            if (channelBusiness != other.channelBusiness) return false
+            if (firstType != other.firstType) return false
+            if (secondType != other.secondType) return false
 
             return true
         }
 
         override fun toString(): String {
-            return "" + queueSize + channelBusiness.joinToString("") { it.toString() }
+            return "$firstType$secondType"
         }
     }
 }

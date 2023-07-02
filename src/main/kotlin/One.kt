@@ -1,3 +1,3 @@
 fun main() {
-    print(getSystem().simulate(tickCount, deltaT))
+    print(getSystem().simulate(tickCount))
 }

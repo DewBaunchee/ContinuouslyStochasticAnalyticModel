@@ -1,104 +1,80 @@
 import domain.Statistics
+import domain.System
 import domain.component.channel.Channels
+import domain.component.channel.ExponentialChannel
 import domain.component.queue.Queue
-import domain.impl.ExponentialChannel
-import domain.impl.PoissonSource
+import domain.component.source.PoissonSource
 import domain.request.Request
+import kotlin.math.exp
+import kotlin.math.ln
 import kotlin.random.Random
 
 const val tickCount = 1_000_000
-const val deltaT = 1.0
 
 fun firstType(): Request {
-    return Request(2)
+    return Request(2, 1)
 }
 
 fun secondType(): Request {
-    return Request(1)
+    return Request(1, 2)
 }
 
-fun name(key: String): String {
-    return when (key) {
-        "000" -> "1"
-        "010" -> "2"
-        "020" -> "3"
-        "110" -> "4"
-        "210" -> "5"
-        "120" -> "6"
-
-        "001" -> "7"
-        "002" -> "8"
-
-        "011" -> "9"
-        "012" -> "10"
-
-        "021" -> "11"
-        "022" -> "12"
-
-        "111" -> "13"
-        "112" -> "14"
-
-        "121" -> "15"
-        "122" -> "16"
-
-        "211" -> "17"
-        "212" -> "18"
-
-        "221" -> "19"
-        "222" -> "20"
-
-        else -> "UNKNOWN"
-    }
+fun timeExp(factor: Double): Double {
+//    val max = 1_000_000
+//    val min = 0
+//    val random = (Random.nextInt(max - min + 1) + min).toDouble() / (max - min)
+    return (-1 / factor) * ln(Random.nextDouble())
 }
 
-fun getSystem(): domain.System {
+fun timePoisson(factor: Double): Double {
+    val l = exp(-factor)
+    var k = 0
+    var p = 1.0
+    do {
+        p *= Random.nextDouble()
+        k++
+    } while (p > l)
+    return (k - 1).toDouble()
+}
+
+fun getSystem(): System {
     val mu = 0.5
     val lambda = 0.9
     val p = 0.5
 
     val source = PoissonSource(lambda) { if (Random.nextDouble() > p) secondType() else firstType() }
-    val queue = Queue(1)
-    val channels = Channels(false, queue, (0 until 2).map { ExponentialChannel(it, mu) })
-    return domain.System(source, queue, channels)
+    val queue = Queue()
+    val channels = Channels(queue, (0 until 2).map { ExponentialChannel(mu) })
+    return System(source, queue, channels)
 }
 
 fun print(statistics: Statistics) {
-    println()
-    println("================================================== STATS ==================================================")
-    println()
-
     statistics.apply {
-        val printTable = listOf(
-            statesProbability.entries.map {
-                "P-${it.key} (${name(it.key.toString())}) = ${it.value}"
-            },
-            listOf(
-                "Refuse probability             (Potk)  = $refuseProbability",
-                "Block probability              (Pbl)   = $blockProbability",
-                "Average queue length           (Loch)  = $averageQueueLength",
-                "Average request count          (Lc)    = $averageRequestCount",
-                "Relative throughput            (Q)     = $relativeThroughput",
-                "Absolute throughput            (A)     = $absoluteThroughput",
-                "Average time in queue          (Woch)  = $averageTimeInQueue",
-                "Average time in system         (Wc)    = $averageTimeInSystem",
-            ).plus(
-                channelCoefficients.mapIndexed { index, value ->
-                    "Channel ${index + 1} coefficient          (Kkan${index + 1}) = $value"
-                }
-            ).plus(
-                channelRelativeThroughput.mapIndexed { index, value ->
-                    "Channel ${index + 1} relative throughput  (Q${index + 1})    = $value"
-                }
-            )
-        )
+        println("Q1 = $q1")
+        println("Q2 = $q2")
 
-        val max = printTable.maxOf { it.size }
-        for (i in 0 until max) {
-            println(
-                String.format(
-                    "%50s   |   %s",
-                    args = Array(printTable.size) { printTable[it].getOrElse(i) { "" } })
-            )
+        states.entries.forEach {
+            println("${name(it.key)} = ${it.value}")
         }
+    }
+}
+
+private fun name(state: System.State): String {
+    return state.toString().let {
+        "P${
+            when(it) {
+                "00" -> 1
+                "10" -> 2
+                "20" -> 3
+                "30" -> 4
+                "01" -> 5
+                "11" -> 6
+                "21" -> 7
+                "02" -> 8
+                "12" -> 9
+                "03" -> 10
+                else -> "UNKNOWN"
+            }
+        } ($it)"
     }
 }
